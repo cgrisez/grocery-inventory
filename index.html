@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Family Grocery Inventory</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <!-- Barcode Scanner -->
+    <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
     
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -111,6 +112,30 @@
             margin: 20px 0;
             border-radius: 12px;
             overflow: hidden;
+            position: relative;
+        }
+
+        #scanner-container video {
+            width: 100%;
+            border-radius: 12px;
+        }
+
+        #scanner-container canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .scanner-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            height: 40%;
+            border: 3px solid #10b981;
+            border-radius: 12px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
         }
 
         .sort-controls {
@@ -407,7 +432,9 @@
             <div id="app-content" style="display: none;">
                 <div class="scanner-section">
                     <button class="btn btn-primary" id="start-scan">📱 Scan Barcode</button>
-                    <div id="scanner-container"></div>
+                    <div id="scanner-container">
+                        <div class="scanner-overlay"></div>
+                    </div>
                     <button class="btn btn-secondary" id="stop-scan" style="display: none;">Stop Scanner</button>
                 </div>
 
@@ -457,7 +484,7 @@
         // TODO: Replace these values with your Firebase project configuration
         // Get these from Firebase Console > Project Settings > Your Apps
         const firebaseConfig = {
-            apiKey: "AIzaSyAwuxtQU5WOKBnT0oks-p4WicE75_1f0bs",
+           apiKey: "AIzaSyAwuxtQU5WOKBnT0oks-p4WicE75_1f0bs",
             authDomain: "pantry-de-grisez.firebaseapp.com",
             databaseURL: "https://pantry-de-grisez-default-rtdb.firebaseio.com",
             projectId: "pantry-de-grisez",
@@ -640,25 +667,66 @@
             document.getElementById('start-scan').style.display = 'none';
             document.getElementById('stop-scan').style.display = 'block';
 
-            scanner = new Html5QrcodeScanner('scanner-container', {
-                fps: 10,
-                qrbox: { width: 250, height: 250 }
+            Quagga.init({
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: scannerContainer,
+                    constraints: {
+                        width: 640,
+                        height: 480,
+                        facingMode: "environment"
+                    }
+                },
+                decoder: {
+                    readers: [
+                        "code_128_reader",
+                        "ean_reader",
+                        "ean_8_reader",
+                        "code_39_reader",
+                        "code_39_vin_reader",
+                        "codabar_reader",
+                        "upc_reader",
+                        "upc_e_reader",
+                        "i2of5_reader"
+                    ]
+                },
+                locate: true,
+                locator: {
+                    halfSample: true,
+                    patchSize: "medium"
+                }
+            }, function(err) {
+                if (err) {
+                    console.error(err);
+                    alert("Could not start scanner. Please make sure camera permissions are enabled.");
+                    stopScanner();
+                    return;
+                }
+                Quagga.start();
             });
 
-            scanner.render(onScanSuccess, onScanError);
+            Quagga.onDetected(onScanSuccess);
         }
 
         function stopScanner() {
-            if (scanner) {
-                scanner.clear();
-                scanner = null;
+            if (Quagga) {
+                Quagga.stop();
+                Quagga.offDetected(onScanSuccess);
             }
             document.getElementById('scanner-container').style.display = 'none';
             document.getElementById('start-scan').style.display = 'block';
             document.getElementById('stop-scan').style.display = 'none';
         }
 
-        async function onScanSuccess(decodedText) {
+        async function onScanSuccess(result) {
+            if (!result || !result.codeResult) return;
+            
+            const decodedText = result.codeResult.code;
+            
+            // Only process if we have a valid barcode
+            if (!decodedText || decodedText.length < 5) return;
+            
             stopScanner();
 
             // Check if this barcode belongs to any existing item
@@ -700,10 +768,6 @@
                 document.getElementById('new-item-modal').classList.add('active');
                 document.getElementById('new-item-name').focus();
             }
-        }
-
-        function onScanError(error) {
-            // Ignore scan errors (very common)
         }
 
         function startMerge(barcode) {
