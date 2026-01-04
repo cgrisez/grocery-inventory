@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Grocery Inventory</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .sync-status {
+            display: inline-block;
+            padding: 4px 12px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 12px;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+
+        .sync-status.synced {
+            background: rgba(16, 185, 129, 0.3);
+        }
+
+        .sync-status.error {
+            background: rgba(239, 68, 68, 0.3);
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .scanner-section {
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f3f4f6;
+            color: #374151;
+            margin-top: 10px;
+        }
+
+        .btn-secondary:hover {
+            background: #e5e7eb;
+        }
+
+        #scanner-container {
+            display: none;
+            margin: 20px 0;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .sort-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .sort-btn {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e5e7eb;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .sort-btn.active {
+            border-color: #667eea;
+            background: #f0f4ff;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .inventory-list {
+            margin-top: 20px;
+        }
+
+        .inventory-item {
+            background: #f9fafb;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 12px;
+            border: 2px solid #e5e7eb;
+            transition: all 0.3s;
+        }
+
+        .inventory-item.low-stock {
+            border-color: #fbbf24;
+            background: #fffbeb;
+        }
+
+        .inventory-item.out-of-stock {
+            border-color: #ef4444;
+            background: #fef2f2;
+        }
+
+        .item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .item-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .item-quantity {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .low-stock .item-quantity {
+            color: #f59e0b;
+        }
+
+        .out-of-stock .item-quantity {
+            color: #ef4444;
+        }
+
+        .item-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .item-btn {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-add {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-remove {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-delete {
+            background: #6b7280;
+            color: white;
+        }
+
+        .item-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .alert-setting {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .alert-setting input {
+            width: 60px;
+            padding: 5px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
+        .alert-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            background: #fbbf24;
+            color: white;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-left: 10px;
+        }
+
+        .out-of-stock .alert-badge {
+            background: #ef4444;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .modal-content h2 {
+            margin-bottom: 20px;
+            color: #1f2937;
+        }
+
+        .modal-content input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #9ca3af;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .barcode-display {
+            font-family: monospace;
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 5px;
+        }
+
+        .stats {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            flex: 1;
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px 20px;
+            color: #9ca3af;
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .config-warning {
+            background: #fef2f2;
+            border: 2px solid #ef4444;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .config-warning h3 {
+            color: #ef4444;
+            margin-bottom: 10px;
+        }
+
+        .config-warning p {
+            color: #7f1d1d;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛒 Family Grocery Inventory</h1>
+            <p>Scan, track, and never run out again</p>
+            <div class="sync-status" id="sync-status">⏳ Connecting...</div>
+        </div>
+
+        <div class="content">
+            <div id="config-warning" class="config-warning" style="display: none;">
+                <h3>⚠️ Setup Required</h3>
+                <p>Please configure your Firebase settings. See the setup instructions in SETUP.md</p>
+            </div>
+
+            <div id="loading-screen" class="loading">
+                <div class="loading-spinner"></div>
+                <p>Loading your inventory...</p>
+            </div>
+
+            <div id="app-content" style="display: none;">
+                <div class="scanner-section">
+                    <button class="btn btn-primary" id="start-scan">📱 Scan Barcode</button>
+                    <div id="scanner-container"></div>
+                    <button class="btn btn-secondary" id="stop-scan" style="display: none;">Stop Scanner</button>
+                </div>
+
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="stat-number" id="total-items">0</div>
+                        <div class="stat-label">Total Items</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="low-stock-count">0</div>
+                        <div class="stat-label">Low Stock</div>
+                    </div>
+                </div>
+
+                <div class="sort-controls">
+                    <button class="sort-btn active" data-sort="name">Sort A-Z</button>
+                    <button class="sort-btn" data-sort="quantity">Sort by Quantity</button>
+                </div>
+
+                <div class="inventory-list" id="inventory-list">
+                    <div class="empty-state">
+                        <p>📦 No items yet</p>
+                        <p style="font-size: 14px;">Scan a barcode to get started!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="new-item-modal">
+        <div class="modal-content">
+            <h2>New Item</h2>
+            <p style="margin-bottom: 15px; color: #6b7280;">What is this item?</p>
+            <input type="text" id="new-item-name" placeholder="e.g., Black Beans" autofocus>
+            <input type="number" id="new-item-quantity" placeholder="Starting quantity" value="1" min="0">
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" id="cancel-new-item">Cancel</button>
+                <button class="btn btn-primary" id="save-new-item">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // FIREBASE CONFIGURATION
+        // ============================================
+        // TODO: Replace these values with your Firebase project configuration
+        // Get these from Firebase Console > Project Settings > Your Apps
+        const firebaseConfig = {
+            apiKey: "AIzaSyAwuxtQU5WOKBnT0oks-p4WicE75_1f0bs",
+            authDomain: "pantry-de-grisez.firebaseapp.com",
+            databaseURL: "https://pantry-de-grisez-default-rtdb.firebaseio.com",
+            projectId: "pantry-de-grisez",
+            storageBucket: "pantry-de-grisez.firebasestorage.app",
+            messagingSenderId: "651858330808",
+            appId: "1:651858330808:web:e055eae73b9fd714c4204d"
+        };
+        // ============================================
+
+        // Check if Firebase is configured
+        const isConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE";
+        
+        let db = null;
+        let inventoryRef = null;
+        let inventory = {};
+        let scanner = null;
+        let currentSort = 'name';
+        let pendingBarcode = null;
+
+        // Initialize Firebase
+        if (isConfigured) {
+            try {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.database();
+                inventoryRef = db.ref('inventory');
+                
+                // Listen for real-time updates
+                inventoryRef.on('value', (snapshot) => {
+                    inventory = snapshot.val() || {};
+                    renderInventory();
+                    updateSyncStatus(true);
+                    
+                    // Hide loading screen on first load
+                    document.getElementById('loading-screen').style.display = 'none';
+                    document.getElementById('app-content').style.display = 'block';
+                });
+            } catch (error) {
+                console.error('Firebase initialization error:', error);
+                showConfigWarning();
+            }
+        } else {
+            showConfigWarning();
+        }
+
+        function showConfigWarning() {
+            document.getElementById('loading-screen').style.display = 'none';
+            document.getElementById('config-warning').style.display = 'block';
+            document.getElementById('app-content').style.display = 'block';
+            updateSyncStatus(false, true);
+        }
+
+        function updateSyncStatus(synced, error = false) {
+            const statusEl = document.getElementById('sync-status');
+            if (error) {
+                statusEl.textContent = '❌ Not Configured';
+                statusEl.className = 'sync-status error';
+            } else if (synced) {
+                statusEl.textContent = '✓ Synced';
+                statusEl.className = 'sync-status synced';
+            } else {
+                statusEl.textContent = '⏳ Saving...';
+                statusEl.className = 'sync-status';
+            }
+        }
+
+        async function saveInventory() {
+            if (!isConfigured || !inventoryRef) return;
+            
+            try {
+                updateSyncStatus(false);
+                await inventoryRef.set(inventory);
+                // Status will be updated by the real-time listener
+            } catch (error) {
+                console.error('Error saving inventory:', error);
+                alert('Failed to save. Please check your connection.');
+            }
+        }
+
+        function updateStats() {
+            const items = Object.values(inventory);
+            document.getElementById('total-items').textContent = items.length;
+            
+            const lowStock = items.filter(item => {
+                if (item.alertThreshold !== null && item.quantity <= item.alertThreshold) {
+                    return true;
+                }
+                return false;
+            }).length;
+            document.getElementById('low-stock-count').textContent = lowStock;
+        }
+
+        function renderInventory() {
+            const listElement = document.getElementById('inventory-list');
+            const items = Object.values(inventory);
+
+            if (items.length === 0) {
+                listElement.innerHTML = `
+                    <div class="empty-state">
+                        <p>📦 No items yet</p>
+                        <p style="font-size: 14px;">Scan a barcode to get started!</p>
+                    </div>
+                `;
+                updateStats();
+                return;
+            }
+
+            // Sort items
+            items.sort((a, b) => {
+                if (currentSort === 'name') {
+                    return a.name.localeCompare(b.name);
+                } else {
+                    return a.quantity - b.quantity;
+                }
+            });
+
+            listElement.innerHTML = items.map(item => {
+                const isLowStock = item.alertThreshold !== null && item.quantity <= item.alertThreshold && item.quantity > 0;
+                const isOutOfStock = item.quantity === 0;
+                const statusClass = isOutOfStock ? 'out-of-stock' : (isLowStock ? 'low-stock' : '');
+                const alertBadge = isOutOfStock ? '<span class="alert-badge">OUT OF STOCK</span>' : 
+                                  (isLowStock ? '<span class="alert-badge">LOW STOCK</span>' : '');
+                
+                const barcodesList = item.barcodes ? item.barcodes.join(', ') : item.barcode;
+
+                return `
+                    <div class="inventory-item ${statusClass}">
+                        <div class="item-header">
+                            <div>
+                                <div class="item-name">${item.name}${alertBadge}</div>
+                                <div class="barcode-display">Barcode(s): ${barcodesList}</div>
+                            </div>
+                            <div class="item-quantity">${item.quantity}</div>
+                        </div>
+                        <div class="item-controls">
+                            <button class="item-btn btn-add" onclick="adjustQuantity('${item.barcode}', 1)">+ Add</button>
+                            <button class="item-btn btn-remove" onclick="adjustQuantity('${item.barcode}', -1)">- Remove</button>
+                            <button class="item-btn btn-delete" onclick="deleteItem('${item.barcode}')">🗑️</button>
+                        </div>
+                        <button class="btn btn-secondary" style="margin-bottom: 10px; padding: 8px; font-size: 13px;" onclick="startMerge('${item.barcode}')">🔗 Link Another Barcode</button>
+                        <div class="alert-setting">
+                            <label>Alert when ≤</label>
+                            <input type="number" 
+                                   value="${item.alertThreshold ?? ''}" 
+                                   placeholder="Off"
+                                   min="0"
+                                   onchange="setAlertThreshold('${item.barcode}', this.value)">
+                            <span style="font-size: 11px;">(leave empty for no alert)</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            updateStats();
+        }
+
+        async function adjustQuantity(barcode, delta) {
+            if (inventory[barcode]) {
+                inventory[barcode].quantity = Math.max(0, inventory[barcode].quantity + delta);
+                await saveInventory();
+            }
+        }
+
+        async function deleteItem(barcode) {
+            if (confirm(`Delete ${inventory[barcode].name}?`)) {
+                delete inventory[barcode];
+                await saveInventory();
+            }
+        }
+
+        async function setAlertThreshold(barcode, value) {
+            if (inventory[barcode]) {
+                inventory[barcode].alertThreshold = value === '' ? null : parseInt(value);
+                await saveInventory();
+            }
+        }
+
+        function startScanner() {
+            const scannerContainer = document.getElementById('scanner-container');
+            scannerContainer.style.display = 'block';
+            document.getElementById('start-scan').style.display = 'none';
+            document.getElementById('stop-scan').style.display = 'block';
+
+            scanner = new Html5QrcodeScanner('scanner-container', {
+                fps: 10,
+                qrbox: { width: 250, height: 250 }
+            });
+
+            scanner.render(onScanSuccess, onScanError);
+        }
+
+        function stopScanner() {
+            if (scanner) {
+                scanner.clear();
+                scanner = null;
+            }
+            document.getElementById('scanner-container').style.display = 'none';
+            document.getElementById('start-scan').style.display = 'block';
+            document.getElementById('stop-scan').style.display = 'none';
+        }
+
+        async function onScanSuccess(decodedText) {
+            stopScanner();
+
+            // Check if this barcode belongs to any existing item
+            let foundItem = null;
+            for (let key in inventory) {
+                const item = inventory[key];
+                if (item.barcodes && item.barcodes.includes(decodedText)) {
+                    foundItem = item;
+                    break;
+                } else if (item.barcode === decodedText) {
+                    foundItem = item;
+                    break;
+                }
+            }
+
+            if (foundItem) {
+                // Item exists, increment quantity
+                foundItem.quantity++;
+                await saveInventory();
+            } else if (window.mergingIntoBarcode) {
+                // We're in merge mode - add this barcode to the target item
+                const targetItem = inventory[window.mergingIntoBarcode];
+                if (targetItem) {
+                    if (!targetItem.barcodes) {
+                        targetItem.barcodes = [targetItem.barcode];
+                    }
+                    if (!targetItem.barcodes.includes(decodedText)) {
+                        targetItem.barcodes.push(decodedText);
+                        await saveInventory();
+                        alert(`Barcode ${decodedText} linked to "${targetItem.name}"!`);
+                    } else {
+                        alert('This barcode is already linked to this item.');
+                    }
+                }
+                window.mergingIntoBarcode = null;
+            } else {
+                // New item, ask for name
+                pendingBarcode = decodedText;
+                document.getElementById('new-item-modal').classList.add('active');
+                document.getElementById('new-item-name').focus();
+            }
+        }
+
+        function onScanError(error) {
+            // Ignore scan errors (very common)
+        }
+
+        function startMerge(barcode) {
+            window.mergingIntoBarcode = barcode;
+            const item = inventory[barcode];
+            alert(`Scan a barcode to link it to "${item.name}"`);
+            startScanner();
+        }
+
+        // Event listeners
+        document.getElementById('start-scan').addEventListener('click', startScanner);
+        document.getElementById('stop-scan').addEventListener('click', stopScanner);
+
+        document.getElementById('save-new-item').addEventListener('click', async () => {
+            const name = document.getElementById('new-item-name').value.trim();
+            const quantity = parseInt(document.getElementById('new-item-quantity').value) || 1;
+
+            if (name && pendingBarcode) {
+                inventory[pendingBarcode] = {
+                    barcode: pendingBarcode,
+                    barcodes: [pendingBarcode],
+                    name: name,
+                    quantity: quantity,
+                    alertThreshold: null
+                };
+                await saveInventory();
+                
+                document.getElementById('new-item-modal').classList.remove('active');
+                document.getElementById('new-item-name').value = '';
+                document.getElementById('new-item-quantity').value = '1';
+                pendingBarcode = null;
+            }
+        });
+
+        document.getElementById('cancel-new-item').addEventListener('click', () => {
+            document.getElementById('new-item-modal').classList.remove('active');
+            document.getElementById('new-item-name').value = '';
+            document.getElementById('new-item-quantity').value = '1';
+            pendingBarcode = null;
+        });
+
+        document.getElementById('new-item-name').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('save-new-item').click();
+            }
+        });
+
+        // Sort buttons
+        document.querySelectorAll('.sort-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                currentSort = this.dataset.sort;
+                renderInventory();
+            });
+        });
+    </script>
+</body>
+</html>
