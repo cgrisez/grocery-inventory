@@ -7,6 +7,9 @@
     <!-- Barcode Scanner -->
     <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
     
+    <!-- EmailJS for notifications -->
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
@@ -168,9 +171,9 @@
 
         .inventory-item {
             background: #f9fafb;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 8px;
             border: 2px solid #e5e7eb;
             transition: all 0.3s;
         }
@@ -189,19 +192,21 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
+            margin-bottom: 6px;
         }
 
         .item-name {
-            font-size: 18px;
+            font-size: 15px;
             font-weight: 600;
             color: #1f2937;
         }
 
         .item-quantity {
-            font-size: 24px;
+            font-size: 20px;
             font-weight: 700;
             color: #667eea;
+            min-width: 40px;
+            text-align: right;
         }
 
         .low-stock .item-quantity {
@@ -213,20 +218,21 @@
         }
 
         .item-controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 5px;
+            margin-bottom: 6px;
         }
 
         .item-btn {
-            flex: 1;
-            padding: 8px;
+            padding: 6px;
             border: none;
-            border-radius: 8px;
-            font-size: 14px;
+            border-radius: 6px;
+            font-size: 11px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
+            white-space: nowrap;
         }
 
         .btn-add {
@@ -244,6 +250,11 @@
             color: white;
         }
 
+        .btn-link {
+            background: #667eea;
+            color: white;
+        }
+
         .item-btn:hover {
             transform: translateY(-1px);
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
@@ -252,32 +263,43 @@
         .alert-setting {
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 13px;
+            gap: 6px;
+            font-size: 11px;
             color: #6b7280;
         }
 
+        .alert-setting label {
+            white-space: nowrap;
+        }
+
         .alert-setting input {
-            width: 60px;
-            padding: 5px;
+            width: 45px;
+            padding: 3px 5px;
             border: 1px solid #d1d5db;
-            border-radius: 6px;
-            font-size: 13px;
+            border-radius: 4px;
+            font-size: 11px;
         }
 
         .alert-badge {
             display: inline-block;
-            padding: 4px 8px;
+            padding: 2px 6px;
             background: #fbbf24;
             color: white;
-            border-radius: 6px;
-            font-size: 11px;
+            border-radius: 4px;
+            font-size: 9px;
             font-weight: 700;
-            margin-left: 10px;
+            margin-left: 6px;
         }
 
         .out-of-stock .alert-badge {
             background: #ef4444;
+        }
+
+        .barcode-display {
+            font-family: monospace;
+            font-size: 10px;
+            color: #9ca3af;
+            margin-top: 2px;
         }
 
         .modal {
@@ -484,7 +506,7 @@
         // TODO: Replace these values with your Firebase project configuration
         // Get these from Firebase Console > Project Settings > Your Apps
         const firebaseConfig = {
-           apiKey: "AIzaSyAwuxtQU5WOKBnT0oks-p4WicE75_1f0bs",
+            apiKey: "AIzaSyAwuxtQU5WOKBnT0oks-p4WicE75_1f0bs",
             authDomain: "pantry-de-grisez.firebaseapp.com",
             databaseURL: "https://pantry-de-grisez-default-rtdb.firebaseio.com",
             projectId: "pantry-de-grisez",
@@ -492,6 +514,18 @@
             messagingSenderId: "651858330808",
             appId: "1:651858330808:web:e055eae73b9fd714c4204d"
         };
+        // ============================================
+
+        // ============================================
+        // EMAIL NOTIFICATIONS
+        // ============================================
+        // EmailJS Configuration (get from https://www.emailjs.com)
+        const EMAILJS_PUBLIC_KEY = "YOUR_EMAILJS_PUBLIC_KEY";
+        const EMAILJS_SERVICE_ID = "YOUR_SERVICE_ID";
+        const EMAILJS_TEMPLATE_ID = "YOUR_TEMPLATE_ID";
+        
+        // Your email addresses for notifications
+        const NOTIFICATION_EMAILS = ["your-email@example.com", "wife-email@example.com"];
         // ============================================
 
         // Check if Firebase is configured
@@ -503,6 +537,7 @@
         let scanner = null;
         let currentSort = 'name';
         let pendingBarcode = null;
+        let notifiedItems = new Set(); // Track which items we've sent notifications for
 
         // Initialize Firebase
         if (isConfigured) {
@@ -514,6 +549,7 @@
                 // Listen for real-time updates
                 inventoryRef.on('value', (snapshot) => {
                     inventory = snapshot.val() || {};
+                    checkLowStockNotifications();
                     renderInventory();
                     updateSyncStatus(true);
                     
@@ -527,6 +563,59 @@
             }
         } else {
             showConfigWarning();
+        }
+
+        // Check for low stock items and send email notifications
+        async function checkLowStockNotifications() {
+            const items = Object.values(inventory);
+            const lowStockItems = items.filter(item => {
+                if (item.alertThreshold !== null && item.quantity <= item.alertThreshold) {
+                    // Only notify if we haven't already notified for this item at this quantity
+                    const notifyKey = `${item.barcode}-${item.quantity}`;
+                    if (!notifiedItems.has(notifyKey)) {
+                        notifiedItems.add(notifyKey);
+                        return true;
+                    }
+                }
+                return false;
+            });
+
+            if (lowStockItems.length > 0) {
+                await sendEmailNotification(lowStockItems);
+            }
+        }
+
+        // Send email notification using EmailJS
+        async function sendEmailNotification(items) {
+            // Check if EmailJS is configured
+            if (EMAILJS_PUBLIC_KEY === "YOUR_EMAILJS_PUBLIC_KEY") {
+                console.log('EmailJS not configured. Low stock items:', items.map(i => i.name).join(', '));
+                return;
+            }
+
+            // Initialize EmailJS
+            emailjs.init(EMAILJS_PUBLIC_KEY);
+
+            // Format the low stock items list
+            const itemsList = items.map(item => {
+                const status = item.quantity === 0 ? 'OUT OF STOCK' : 'LOW STOCK';
+                return `${item.name}: ${item.quantity} remaining (${status})`;
+            }).join('\n');
+
+            // Send email to each recipient
+            for (const email of NOTIFICATION_EMAILS) {
+                try {
+                    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+                        to_email: email,
+                        items_list: itemsList,
+                        item_count: items.length,
+                        timestamp: new Date().toLocaleString()
+                    });
+                    console.log(`Notification sent to ${email}`);
+                } catch (error) {
+                    console.error(`Failed to send notification to ${email}:`, error);
+                }
+            }
         }
 
         function showConfigWarning() {
@@ -604,8 +693,8 @@
                 const isLowStock = item.alertThreshold !== null && item.quantity <= item.alertThreshold && item.quantity > 0;
                 const isOutOfStock = item.quantity === 0;
                 const statusClass = isOutOfStock ? 'out-of-stock' : (isLowStock ? 'low-stock' : '');
-                const alertBadge = isOutOfStock ? '<span class="alert-badge">OUT OF STOCK</span>' : 
-                                  (isLowStock ? '<span class="alert-badge">LOW STOCK</span>' : '');
+                const alertBadge = isOutOfStock ? '<span class="alert-badge">OUT</span>' : 
+                                  (isLowStock ? '<span class="alert-badge">LOW</span>' : '');
                 
                 const barcodesList = item.barcodes ? item.barcodes.join(', ') : item.barcode;
 
@@ -614,24 +703,24 @@
                         <div class="item-header">
                             <div>
                                 <div class="item-name">${item.name}${alertBadge}</div>
-                                <div class="barcode-display">Barcode(s): ${barcodesList}</div>
+                                <div class="barcode-display">${barcodesList}</div>
                             </div>
                             <div class="item-quantity">${item.quantity}</div>
                         </div>
                         <div class="item-controls">
                             <button class="item-btn btn-add" onclick="adjustQuantity('${item.barcode}', 1)">+ Add</button>
                             <button class="item-btn btn-remove" onclick="adjustQuantity('${item.barcode}', -1)">- Remove</button>
+                            <button class="item-btn btn-link" onclick="startMerge('${item.barcode}')">🔗 Link</button>
                             <button class="item-btn btn-delete" onclick="deleteItem('${item.barcode}')">🗑️</button>
                         </div>
-                        <button class="btn btn-secondary" style="margin-bottom: 10px; padding: 8px; font-size: 13px;" onclick="startMerge('${item.barcode}')">🔗 Link Another Barcode</button>
                         <div class="alert-setting">
-                            <label>Alert when ≤</label>
+                            <label>Alert ≤</label>
                             <input type="number" 
                                    value="${item.alertThreshold ?? ''}" 
-                                   placeholder="Off"
+                                   placeholder="-"
                                    min="0"
                                    onchange="setAlertThreshold('${item.barcode}', this.value)">
-                            <span style="font-size: 11px;">(leave empty for no alert)</span>
+                            <span style="font-size: 10px; color: #9ca3af;">(blank = off)</span>
                         </div>
                     </div>
                 `;
